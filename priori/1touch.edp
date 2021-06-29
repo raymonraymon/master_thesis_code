@@ -1,0 +1,83 @@
+real[int] Herror(2),Berror(2),HHerror(2),m(2);
+
+int M=2;
+func uexact=(x^2+y^2)^M;
+real rho=0.99;
+real beta=0.01;
+real alpha=0.01;
+func f=-4*M^2*(x^2+y^2)^(M-1)+alpha*uexact;
+func ud=(x^2+y^2)^M;
+
+func w0=max(0.0,(0*(x>0)+y*(x<0))/beta);
+
+//   func w0=max((y+x)^2/beta,1*cos(y+x)/beta);
+//      func w0=max((2*x+y)^2/beta,1*cos(x+y)^3/beta);//无接触但不连续
+//   func w0=max(0.0,1*sin(x)/beta);
+//    func w0=max(0.0,0.75/((sin(x)+0.01)*beta));
+
+func g=2*M*(x^2+y^2)^(M-0.5)+w0*uexact;
+
+real a=1.0;
+border b(t=0,2*pi){x=a*cos(t);y=a*sin(t);}
+
+for (int i=0;i<2;i=i+1)
+    {
+mesh Th=buildmesh(b(60*(i+1)));
+fespace Vh(Th,P1);
+Vh u=0,v,p,q,uold;
+fespace Uh(Th,P0);
+Uh zero=0.0,w=w0,bu,bp,w00=w0;
+problem Poisson(u,v) =
+    int2d(Th)( u*v*alpha+  dx(u)*dx(v) + dy(u)*dy(v))+int1d(Th)(w*u*v)-int1d(Th)(g*v)- int2d(Th)(f*v);
+problem CoStateEquation(p,q)=
+    int2d(Th)( p*q*alpha+  dx(p)*dx(q) + dy(p)*dy(q))+int1d(Th)(w*p*q)- int2d(Th)( (u-ud)*q);
+ofstream g("J.txt");
+func real J(real[int] & Z)
+{
+Uh w1;w1[]=Z;
+Poisson;
+real s=int2d(Th)((u-ud)^2)+beta*int1d(Th)((w1-w0)^2);
+s=s/2;
+g<<"J(u)="<<s<<"   "<<Z.min<<" "<<Z.max<<endl;
+return s;
+}
+    real epsu=1;
+    while(epsu>0.5)
+    {
+    uold=u;
+    Poisson;
+    CoStateEquation;
+    bp=p;
+    bu=u;
+    w=w-rho*(beta*(w-w0)-bp*bu);
+    w=max(zero,w);
+   
+    epsu=sqrt(int2d(Th)((u-uold)^2));
+    cout<< " restart with new preconditionner " << " epsu =" << epsu << endl;
+     }  
+     cout<<"the stopping critical ="<<epsu<<endl;
+     m[i]=J(w[]);         
+     for (int i=0;i<2;i++)
+     cout<<"the Functional value ="<<m[i]<<endl;
+   
+    g<<"     TTTTTT    TTTT"<<epsu<<endl;
+    /*plot(Th,u,wait=true,fill=true,ps="u.eps");*/
+    plot(Th,w,wait=true,fill=true,ps="w.eps");
+    //g<<w[]<<endl;
+    Vh uer=u-uexact;
+    Herror[i]=sqrt(int2d(Th)((uer)^2));
+    HHerror[i]=sqrt(int2d(Th)((uer)^2+dx(uer)^2+dy(uer)^2));
+    Berror[i]=sqrt(int1d(Th)((w-w0)^2));
+    }
+    
+for(int i=0;i<2;i++)
+         cout<<"The L^2 error of state is :"<<Herror[i]<<endl;  
+ cout<<"convergence rate of L^2 error on state="<<log(Herror[0]/Herror[1])/log(2.)<<endl;
+cout<<"  "<<endl; 
+for(int i=0;i<2;i++)
+        cout<<"The H^1 error of state is :"<<HHerror[i]<<endl;
+ cout<<"convergence rate of H^1 error on state="<<log(HHerror[0]/HHerror[1])/log(2.)<<endl;
+cout<<"  "<<endl;
+for(int i=0;i<2;i++)
+          cout<<"The error of control is :"<<Berror[i]<<endl;
+          cout<<"convergence rate of control="<<log(Berror[0]/Berror[1])/log(2.)<<endl;

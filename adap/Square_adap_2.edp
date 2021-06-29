@@ -1,0 +1,164 @@
+real rho=0.99;
+real alpha=0.01; 
+real hinit=0.20;
+real beta=0.001;
+verbosity=0;
+
+macro  MeshSizecomputation(Th,Vh,h)
+{  
+    real[int]  count(Th.nv);    
+    varf vmeshsizen(u,v)=intalledges(Th,qfnbpE=1)(v);     
+    varf vedgecount(u,v)=intalledges(Th,qfnbpE=1)(v/lenEdge);   
+    count=vedgecount(0,Vh);
+    h[]=0.;
+    h[]=vmeshsizen(0,Vh);
+    cout << " count min = "<< count.min << " " << count.max << endl;
+    h[]=h[]./count;
+    cout << " -- bound meshsize = " <<h[].min << " " << h[].max << endl;
+}// End
+
+
+macro  ReMeshIndicator(Th,Ph,Vh,vindicator,coef)
+{
+    Vh h=0;
+    MeshSizecomputation(Th,Vh,h); 
+    Ph etak;  
+    etak[]=vindicator(0,Ph);
+    cout << " global  Eta  : " << sqrt(etak[].sum) << "  ......... " <<  Th.nv<< endl;
+    etak[]=sqrt(etak[]); 
+    real etastar= coef*(etak[].sum/etak[].n);
+    cout << " etastar = " << etastar << " sum=" << etak[].sum << " " << endl;
+    Vh fn,sigma;
+    varf veta(unused,v)=int2d(Th)(etak*v);
+    varf vun(unused,v)=int2d(Th)(1*v);
+    fn[]  = veta(0,Vh);
+    sigma[]= vun(0,Vh);
+    fn[]= fn[]./ sigma[];
+    fn =  max(min(fn/etastar,3.),0.3333) ; 
+    h = h / fn ; 
+    Th=adaptmesh(Th,IsMetric=1,h,splitpbedge=1,nbvx=10000);
+}//End
+
+
+
+
+int n=10;
+mesh Th = square(n,n);
+fespace Vh(Th,P1);
+Vh u=0,v,p,q,uold,uexact,pexact,ud,f,g1,g2,g3,g4,h1,h2,h3,h4,uerr,perr;
+Vh h=hinit;
+fespace Uh(Th,P0);
+Uh zero=0.0;
+Vh zero1=0.0;
+Uh w,w00,bu,bp,wold,w0;
+
+int M=5;
+
+real e=0.001;
+func basis1=log(x^2+y^2+e);
+func basis2=(x^2+y^2)^M;
+uexact=basis1+basis2;
+    
+pexact=basis2;
+
+ud=uexact+dxx(pexact)+dyy(pexact)-alpha*pexact;
+
+f=-(dxx(uexact)+dyy(uexact))+alpha*uexact;
+
+//func w0=max(0.0,sin(x-0.5)/beta);
+
+w0=max(0.0,sin(x-0.5)/beta);
+w=w0;
+w00=max(zero1,uexact*pexact/beta);
+
+g1=-dy(uexact)+w0*uexact;
+g2=dx(uexact)+w0*uexact;
+g3=dy(uexact)+w0*uexact;
+g4=-dx(uexact)+w0*uexact;
+
+
+h1=-dy(pexact)+w0*pexact;
+h2=dx(pexact)+w0*pexact;
+h3=dy(pexact)+w0*pexact;
+h4=-dx(pexact)+w0*pexact;
+
+Th=adaptmesh(Th,h,IsMetric=1,splitpbedge=1,nbvx=100);
+plot(Th,wait=1,ps="Th-init.eps");
+
+problem Poisson(u,v) =
+    int2d(Th)( u*v*alpha +  dx(u)*dx(v) + dy(u)*dy(v))
+    +int1d(Th)(w*u*v)-int1d(Th,1)(g1*v)-int1d(Th,2)(g2*v)-int1d(Th,3)(g3*v)-int1d(Th,4)(g4*v)- int2d(Th)( f*v);
+
+ofstream g("J.txt");
+func real J(real[int] & Z)
+{
+Uh w1;w1[]=Z;
+Poisson;
+real s=int2d(Th)((u-ud)^2)+beta*int1d(Th)((w1-w00)^2);
+s=s/2;
+g<<"J(u)="<<s<<"   "<<Z.min<<" "<<Z.max<<endl;
+return s;
+}
+problem CoStateEquation(p,q)=
+    int2d(Th)( p*q*alpha+  dx(p)*dx(q) + dy(p)*dy(q))+int1d(Th)(w*p*q)
+    -int1d(Th,1)(h1*q)-int1d(Th,2)(h2*q)-int1d(Th,3)(h3*q)-int1d(Th,4)(h4*q)- int2d(Th)( (u-ud)*q);
+
+varf indicator2(unused,chiK) =
+     intalledges(Th)(chiK*lenEdge*square(jump(N.x*dx(u)+N.y*dy(u))))
+    +int2d(Th)(chiK*square(hTriangle*(f+dxx(u)+dyy(u))))
+    +int1d(Th)(chiK*lenEdge*square(N.x*dx(u)+N.y*dy(u)+w*u))
+    +intalledges(Th)(chiK*lenEdge*square(jump(N.x*dx(p)+N.y*dy(p))))
+    +int2d(Th)(chiK*square(hTriangle*(f+dxx(p)+dyy(p))))
+    +int1d(Th)(chiK*lenEdge*square(N.x*dx(p)+N.y*dy(p)+w*p));    
+
+    real epsw=1;
+    while(epsw>0.25)
+    {
+    Th=Th;
+    uold=u;
+    Poisson;
+    CoStateEquation;
+    bu=u;
+    bp=p;
+    w=w-rho*(beta*(w-w00)-bu*bp);
+    w=max(zero,w);
+    real cc=1;
+    ReMeshIndicator(Th,Uh,Vh,indicator2,cc);
+    plot(Th,wait=1,ps="Th-final.eps");
+    
+    real m=J(w[]);
+    epsw=sqrt(int2d(Th)((u-uold)^2));
+    cout<< " restart with new preconditionner " << " epsw =" << epsw << endl;
+
+    fespace Nh(Th,P0);
+    Nh estmitor;
+    estmitor[]=indicator2(0,Nh);
+    estmitor=sqrt(estmitor);
+    cout<<"estmitor= min"<<estmitor[].min<<"max="<<estmitor[].max<<endl;
+    uerr=u-uexact;
+    perr=p-pexact;
+    real T=sqrt(int2d(Th)((uerr)^2+dx(uerr)^2+dy(uerr)^2));
+//    real T=sqrt(int2d(Th)(dx(uerr)^2+dy(uerr)^2));
+    T=T+sqrt(int2d(Th)((perr)^2+dx(perr)^2+dy(perr)^2));
+//    T=T+sqrt(int2d(Th)(dx(perr)^2+dy(perr)^2));
+    T=T+sqrt(int1d(Th)((w-w00)^2));
+    cout<<"the H^1 error of control problem = "<<sqrt(T)<<endl;
+    
+    real effIndmin=estmitor[].min/sqrt(T);
+    real effIndmax=estmitor[].max/sqrt(T);
+    real effIndmean=(estmitor[].min+estmitor[].max)/(2*sqrt(T));
+    cout<<"the efficiency_index111= "<<effIndmin<<endl;
+        cout<<"the efficiency_index222= "<<effIndmax<<endl;
+            cout<<"the efficiency_index333= "<<effIndmean<<endl;
+    real nbvert=Th.nv;
+    cout<<"N.O. of vertice is= "<<nbvert<<endl;
+    real asympt= log(effIndmean)/log(nbvert);
+
+    cout<<"The asymptotically_exact_rate_of_Estimator="<<asympt<<endl;
+    
+    }
+    //cout<<"     TTTTTT    TTTT"<<epsw<<endl;
+    plot(Th,wait=1, bb=[[0.9,1.0],[0.9,1.0]],ps="Th-final-detial.eps");
+    plot(Th,u,wait=true,fill=true,ps="u.eps");
+    plot(Th,p,wait=true,fill=true,ps="p.eps");
+    plot(Th,w,wait=true,fill=true,ps="w.eps");

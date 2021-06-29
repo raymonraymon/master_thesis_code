@@ -1,0 +1,111 @@
+real rho=0.88;
+real alpha=0.01;
+real hinit=0.20;
+real beta=0.1;
+int M=5;
+func uexact=(x^2+y^2)^M;
+func ud=(x^2+y^2)^M;
+func f=-4*M^2*(x^2+y^2)^(M-1)+alpha*uexact;
+//func w0=max(0.0,0.75*cos(x));
+func w0=max(0.0,1/((x+0.01)*beta));
+func gg=2*M*(x^2+y^2)^(M-0.5)+w0*uexact;
+
+macro  MeshSizecomputation(Th,Vh,h)
+{
+    real[int]  count(Th.nv);
+    varf vmeshsizen(u,v)=intalledges(Th,qfnbpE=1)(v);
+    varf vedgecount(u,v)=intalledges(Th,qfnbpE=1)(v/lenEdge);
+    count=vedgecount(0,Vh);
+    h[]=0.;
+    h[]=vmeshsizen(0,Vh);
+    cout << " count min = "<< count.min << " " << count.max << endl;
+    h[]=h[]./count;
+    cout << " -- bound meshsize = " <<h[].min << " " << h[].max << endl;
+}// End
+
+
+macro  ReMeshIndicator(Th,Ph,Vh,vindicator,coef)
+{
+    Vh h=0;
+    MeshSizecomputation(Th,Vh,h);
+    Ph etak;
+    etak[]=vindicator(0,Ph);
+    cout << " global  Eta  : " << sqrt(etak[].sum) << "  ......... " <<  Th.nv<< endl;
+    etak[]=sqrt(etak[]);
+    real etastar= coef*(etak[].sum/etak[].n);
+    cout << " etastar = " << etastar << " sum=" << etak[].sum << " " << endl;
+    Vh fn,sigma;
+    varf veta(unused,v)=int2d(Th)(etak*v);
+    varf vun(unused,v)=int2d(Th)(1*v);
+    fn[]  = veta(0,Vh);
+    sigma[]= vun(0,Vh);
+    fn[]= fn[]./ sigma[];
+    fn =  max(min(fn/etastar,3.),0.3333) ;
+    h = h / fn ;
+    Th=adaptmesh(Th,IsMetric=1,h,splitpbedge=1,nbvx=10000);
+}//End
+
+
+real a=1.0;
+border C(t=0,2*pi){x=a*cos(t); y=a*sin(t);}
+mesh Th = buildmesh(C(20));
+fespace Vh(Th,P1);
+Vh u=0,v,p,q,uold;
+Vh h=hinit;
+fespace Uh(Th,P0);
+Uh zero=0.0;
+Uh w=w0,w00=w0,bu,bp,wold;
+Th=adaptmesh(Th,h,IsMetric=1,splitpbedge=1,nbvx=10000);
+plot(Th,wait=0,ps="Th-init.eps");
+
+problem Poisson(u,v) =
+    int2d(Th)( u*v*alpha +  dx(u)*dx(v) + dy(u)*dy(v))+int1d(Th)(w*u*v)-int1d(Th)(gg*v)- int2d(Th)( f*v);
+
+ofstream g("J.txt");
+func real J(real[int] & Z)
+{
+Uh w1;w1[]=Z;
+Poisson;
+real s=int2d(Th)((u-ud)^2)+beta*int1d(Th)((w1-w00)^2);
+s=s/2;
+g<<"J(u)="<<s<<"   "<<Z.min<<" "<<Z.max<<endl;
+return s;
+}
+problem CoStateEquation(p,q)=
+    int2d(Th)( p*q*alpha+  dx(p)*dx(q) + dy(p)*dy(q))+int1d(Th)(w*p*q)- int2d(Th)( (u-ud)*q);
+
+varf indicator2(unused,chiK) =
+     intalledges(Th)(chiK*lenEdge*square(jump(N.x*dx(u)+N.y*dy(u))))
+    +int2d(Th)(chiK*square(hTriangle*(f+dxx(u)+dyy(u))))
+    +int1d(Th)(chiK*lenEdge*square(N.x*dx(u)+N.y*dy(u)+w*u))
+    +intalledges(Th)(chiK*lenEdge*square(jump(N.x*dx(p)+N.y*dy(p))))
+    +int2d(Th)(chiK*square(hTriangle*(f+dxx(p)+dyy(p))))
+    +int1d(Th)(chiK*lenEdge*square(N.x*dx(p)+N.y*dy(p)+w*p));
+
+    real epsw=1;
+    while(epsw>0.5)
+    {
+    uold=u;
+    Poisson;
+    CoStateEquation;
+    bu=u;
+    bp=p;
+    w=w-rho*(beta*(w-w00)-bu*bp);
+    w=max(zero,w);
+    real cc=1;
+    try
+    {
+    ReMeshIndicator(Th,Uh,Vh,indicator2,cc);
+    }
+    catch(...)
+    {
+    g<<"catch an ExecError"<<endl;
+    Th = Th;
+    }
+    plot(Th,wait=1,ps="Th-final.eps",cmm="The Final Mesh");
+    real m=J(w[]);
+    epsw=sqrt(int2d(Th)((u-uold)^2));
+    g<< " restart with new preconditionner " << " epsw =" << epsw << endl;
+    }
+    cout<<"     TTTTTT    TTTT"<<epsw<<endl;
+    plot(Th,u,wait=true,fill=true,ps="u.eps");

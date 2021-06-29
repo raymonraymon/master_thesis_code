@@ -1,0 +1,130 @@
+ EXEC of the plot  : ffglut.exe
+-- FreeFem++ v  3.700001 (date Wed Jan 13 23:03:38     2010)
+ Load: lg_fem  UMFPACK lg_mesh  glumesh2D lg_mesh3 eigenvalue
+    1 : real[int] Herror(2),Berror(2),HHerror(2),m(2);
+    2 :
+    3 : real e=0.1;
+    4 : func basis=1-x*y+e;
+    5 : func uexact=1/basis;
+    6 : real rho=0.99;
+    7 : real beta=0.01;
+    8 : real alpha=0.01;
+    9 : func f=-2*(x^2+y^2)*basis^(-3)+alpha*uexact;
+   10 : func ud=uexact;
+   11 :
+   12 : //   func w0=max(0.0,1*sin(x+y)/beta);
+   13 : //   func w0=max(0.0,1/((sin(x+y)+0.01)*beta));
+   14 : //   func w0=max(0.0,(log(x+y))/beta);
+   15 :      func w0=max(0.0,(10*((y-0.5)^3)*(y>0.5)+(-1)*(y<0.5))/beta);//有连续接触集，正常收敛阶
+   16 : //     func w0=max(0.0,(10*((y-0.5)^3+0.5)*(y>0.5)+(-1)*(y<0.5))/beta);//有不连续接触集。控
+制收敛阶或差或好
+   17 : //     func w0=max(0.0,(10*((y-0.5)^3+100)*(y>0.5)+(10)*(y<0.5))/beta);//有不连续,无接触集。正常收敛阶
+   18 : //     func w0=max(0.0,10*(y+0.5)^3/beta);//连续,无接触集。正常收敛阶
+   19 : func g1=-x*basis^(-2)+w0*uexact;
+   20 : func g2=y*basis^(-2)+w0*uexact;
+   21 : func g3=x*basis^(-2)+w0*uexact;
+   22 : func g4=-y*basis^(-2)+w0*uexact;
+   23 :
+   24 :
+   25 : int n=64;
+   26 : for (int i=0;i<2;i=i+1)
+   27 :     {
+   28 : mesh Th=square(n*(i+1),n*(i+1));
+   29 : fespace Vh(Th,P1);
+   30 : Vh u=0,v,p,q,uold;
+   31 : fespace Uh(Th,P0);
+   32 : Uh zero=0.0,w=w0,bu,bp,w00=w0,wold;
+   33 : problem Poisson(u,v) =
+   34 :     int2d(Th)( u*v*alpha+  dx(u)*dx(v) + dy(u)*dy(v))+int1d(Th)(w*u*v)-int1d(Th,1)(g1*v)-int1d(Th,2)(g2*v)
+   35 :     -int1d(Th,3)(g3*v)-int1d(Th,4)(g4*v)- int2d(Th)(f*v);
+   36 : problem CoStateEquation(p,q)=
+   37 :     int2d(Th)( p*q*alpha+  dx(p)*dx(q) + dy(p)*dy(q))+int1d(Th)(w*p*q)- int2d(Th)( (u-ud)*q);
+   38 : ofstream g("J.txt");
+   39 : func real J(real[int] & Z)
+   40 : {
+   41 : Uh w1;w1[]=Z;
+   42 : Poisson;
+   43 : real s=int2d(Th)((u-ud)^2)+beta*int1d(Th)((w1-w0)^2);
+   44 : s=s/2;
+   45 : g<<"J(u)="<<s<<"   "<<Z.min<<" "<<Z.max<<endl;
+   46 : return s;
+   47 : }
+   48 :     real epsu=1;
+   49 :     while(epsu>1.0e-4)
+   50 :     {
+   51 :     uold=u;
+   52 :     Poisson;
+   53 :     CoStateEquation;
+   54 :     bp=p;
+   55 :     bu=u;
+   56 :     w=w-rho*(beta*(w-w0)-bp*bu);
+   57 :     w=max(zero,w);
+   58 :     epsu=sqrt(int2d(Th)((u-uold)^2));
+   59 :     cout<< " restart with new preconditionner " << " epsu =" << epsu << endl;
+   60 :      }
+   61 :      cout<<"the stopping critical ="<<epsu<<endl;
+   62 :      m[i]=J(w[]);
+   63 :      for (int i=0;i<2;i++)
+   64 :      cout<<"the Functional value NO."<<i<<" ="<<m[i]<<endl;
+   65 :
+   66 :     g<<"     TTTTTT    TTTT"<<epsu<<endl;
+   67 :     plot(Th,u,wait=true,fill=true,ps="u.eps");
+   68 :     plot(Th,w,wait=true,fill=true,ps="w.eps");
+   69 :     //g<<w[]<<endl;
+   70 :     Vh uer=u-uexact;
+   71 :     Herror[i]=sqrt(int2d(Th)((uer)^2));
+   72 :     HHerror[i]=sqrt(int2d(Th)((uer)^2+dx(uer)^2+dy(uer)^2));
+   73 :     Berror[i]=sqrt(int1d(Th)((w-w0)^2));
+   74 :     }
+   75 :
+   76 : for(int i=0;i<2;i++)
+   77 :          cout<<"The L^2 error of state is :"<<Herror[i]<<endl;
+   78 :  cout<<"convergence rate of L^2 error on state="<<log(Herror[0]/Herror[1])/log(2.)<<endl;
+   79 : cout<<"  "<<endl;
+   80 : for(int i=0;i<2;i++)
+   81 :         cout<<"The H^1 error of state is :"<<HHerror[i]<<endl;
+   82 :  cout<<"convergence rate of H^1 error on state="<<log(HHerror[0]/HHerror[1])/log(2.)<<endl;
+   83 : cout<<"  "<<endl;
+   84 : for(int i=0;i<2;i++)
+   85 :           cout<<"The error of control is :"<<Berror[i]<<endl;
+   86 :           cout<<"convergence rate of control="<<log(Berror[0]/Berror[1])/log(2.)<<endl;
+   87 :  sizestack + 1024 =7612  ( 6588 )
+ 
+  -- Square mesh : nb vertices  =4225 ,  nb triangles = 8192 ,  nb boundary edges 256
+  -- Solve :           min 0.894613  max 10.1837
+  -- Solve :           min 5.43899e-006  max 0.0208859
+ restart with new preconditionner  epsu =1.53068
+  -- Solve :           min 0.893405  max 10.1836
+  -- Solve :           min 3.3657e-006  max 0.0108438
+ restart with new preconditionner  epsu =0.0195514
+  -- Solve :           min 0.89256  max 10.1835
+  -- Solve :           min 2.39843e-006  max 0.0062305
+ restart with new preconditionner  epsu =0.00942028
+  -- Solve :           min 0.892003  max 10.1835
+  -- Solve :           min 1.87966e-006  max 0.00405302
+ restart with new preconditionner  epsu =0.00515156
+  -- Solve :           min 0.890237  max 10.1834
+  -- Solve :           min 1.58437e-006  max 0.00310437
+ restart with new preconditionner  epsu =0.00298057
+  -- Solve :           min 0.888062  max 10.1833
+  -- Solve :           min 1.41142e-006  max 0.00264908
+ restart with new preconditionner  epsu =0.00178037
+  -- Solve :           min 0.887011  max 10.1833
+  -- Solve :           min -0.000110324  max 0.00240479
+ restart with new preconditionner  epsu =0.00108974
+  -- Solve :           min 0.886619  max 10.1832
+  -- Solve :           min -0.000359581  max 0.00226361
+ restart with new preconditionner  epsu =0.000686926
+  -- Solve :           min 0.886615  max 10.1832
+  -- Solve :           min -0.00049786  max 0.00217622
+ restart with new preconditionner  epsu =0.000454484
+  -- Solve :           min 0.886837  max 10.1831
+  -- Solve :           min -0.000569237  max 0.00212115
+ restart with new preconditionner  epsu =0.000325273
+  -- Solve :           min 0.886586  max 10.1831
+  -- Solve :           min -0.000600255  max 0.00208329
+ restart with new preconditionner  epsu =0.000257231
+  -- Solve :           min 0.886367  max 10.183
+  -- Solve :           min -0.000607054  max 0.00205611
+ restart with new preconditionner  epsu =0.000222468
+ try getConsole H:\prog\priori\touch.edp
